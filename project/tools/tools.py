@@ -37,7 +37,11 @@ class SafeCalculator:
 
     @classmethod
     def _eval(cls, node):
-        if isinstance(node, ast.Num):
+        # Use ast.Constant for Python 3.8+ compatibility
+        if isinstance(node, ast.Constant):
+            return node.value
+        # Fallback for older Python versions
+        if hasattr(ast, 'Num') and isinstance(node, ast.Num):
             return node.n
         if isinstance(node, ast.BinOp):
             return cls.OPS[type(node.op)](cls._eval(node.left), cls._eval(node.right))
@@ -99,18 +103,32 @@ class GoogleTranslator:
 
 # --- File extractors ---
 def extract_pdf_text(pdf_path):
-    # Temporarily remove broad exception handling for debugging
-    reader = PdfReader(pdf_path)
-    pages = []
-    for page in reader.pages:
-        pages.append(page.extract_text() or "")
-    return "".join(pages)
+    """Extract text from PDF file with error handling."""
+    try:
+        if not pdf_path or not os.path.exists(pdf_path):
+            raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+        
+        reader = PdfReader(pdf_path)
+        pages = []
+        for page in reader.pages:
+            pages.append(page.extract_text() or "")
+        return "".join(pages)
+    except Exception as e:
+        # For notebook/Colab compatibility, return empty string with warning
+        print(f"⚠️  Warning: Could not extract PDF text from {pdf_path}: {e}")
+        return ""
 
 def extract_docx_text(docx_path):
+    """Extract text from DOCX file with error handling."""
     try:
+        if not docx_path or not os.path.exists(docx_path):
+            raise FileNotFoundError(f"DOCX file not found: {docx_path}")
+        
         doc = DocxDocument(docx_path)
         return "".join(p.text for p in doc.paragraphs)
-    except Exception:
+    except Exception as e:
+        # For notebook/Colab compatibility, return empty string with warning
+        print(f"⚠️  Warning: Could not extract DOCX text from {docx_path}: {e}")
         return ""
 
 # --- Gemini LLM ---
