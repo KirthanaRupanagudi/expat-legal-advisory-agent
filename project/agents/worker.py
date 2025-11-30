@@ -33,6 +33,9 @@ class Worker:
                 return "", True  # Empty string is valid
             translator = GoogleTranslator()
             result = translator.translate(text, target=target, source=source_lang)
+            # Ensure result is not None
+            if result is None:
+                return text, False
             return result, True  # Translation succeeded
         except Exception as e:
             # Log but don't raise; fallback to original
