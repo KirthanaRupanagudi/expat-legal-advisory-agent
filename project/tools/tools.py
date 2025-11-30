@@ -9,15 +9,68 @@ from PyPDF2 import PdfReader
 from docx import Document as DocxDocument
 
 # --- Utilities ---
-def retry_generic(func, retries=3, delay=2, exceptions=(Exception,)):
+def retry_generic(func, retries=3, delay=2, timeout=30, exceptions=(Exception,)):
+    """
+    Retry a function with exponential backoff and timeout.
+    
+    Args:
+        func: Function to execute
+        retries: Number of retry attempts
+        delay: Initial delay between retries (doubles each attempt)
+        timeout: Maximum time to wait for single execution (seconds)
+        exceptions: Tuple of exceptions to catch
+    
+    Returns:
+        Result from func()
+    
+    Raises:
+        TimeoutError: If execution exceeds timeout
+        Exception: If all retries fail
+    """
+    import threading
+    
     for attempt in range(retries):
-        try:
-            return func()
-        except exceptions:
-            if attempt < retries - 1:
-                time.sleep(delay)
+        result_container = []
+        exception_container = []
+        
+        def target():
+            try:
+                result_container.append(func())
+            except Exception as e:
+                exception_container.append(e)
+        
+        # Run function in thread with timeout
+        thread = threading.Thread(target=target)
+        thread.daemon = True
+        thread.start()
+        thread.join(timeout=timeout)
+        
+        # Check if thread is still alive (timeout)
+        if thread.is_alive():
+            raise TimeoutError(f"Operation timed out after {timeout} seconds")
+        
+        # Check for exceptions
+        if exception_container:
+            e = exception_container[0]
+            if isinstance(e, exceptions):
+                if attempt < retries - 1:
+                    # Exponential backoff
+                    wait_time = delay * (2 ** attempt)
+                    time.sleep(wait_time)
+                else:
+                    raise e
             else:
-                raise
+                raise e
+        
+        # Return result if successful
+        if result_container:
+            return result_container[0]
+        
+        # If no result and no exception, retry
+        if attempt < retries - 1:
+            time.sleep(delay)
+    
+    raise RuntimeError("Function did not return a result")
 
 def summarizer(text, max_len=200):
     text = str(text or "")

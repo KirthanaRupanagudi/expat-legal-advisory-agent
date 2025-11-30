@@ -33,6 +33,9 @@ class Worker:
                 return "", True  # Empty string is valid
             translator = GoogleTranslator()
             result = translator.translate(text, target=target, source=source_lang)
+            # Ensure result is not None
+            if result is None:
+                return text, False
             return result, True  # Translation succeeded
         except Exception as e:
             # Log but don't raise; fallback to original
@@ -93,18 +96,32 @@ class Worker:
 
         # LLM generation: Pass translated document and enforced reply language
         # If translation failed, pass original document for LLM to handle
-        base = self.llm.generate_response(
-            user_question_original=user_input_original,
-            user_question_en=user_input_en,
-            document_content_en=document_translated if translation_succeeded else None,
-            citations=citations,
-            document_content_original=document if (document and not translation_succeeded) else None,
-            reply_language=preferred_language
-        )
+        try:
+            base = self.llm.generate_response(
+                user_question_original=user_input_original,
+                user_question_en=user_input_en,
+                document_content_en=document_translated if translation_succeeded else None,
+                citations=citations,
+                document_content_original=document if (document and not translation_succeeded) else None,
+                reply_language=preferred_language
+            )
+        except TimeoutError:
+            return "I apologize, but the request took too long to process. Please try with a shorter document or simpler question."
+        except Exception as e:
+            print(f"⚠️  LLM generation failed: {str(e)}")
+            base = None
 
-        # Ensure base is a string (handle None case)
-        if not base:
-            base = "I apologize, but I couldn't generate a response at this time."
+        # Validate LLM response
+        if not base or not isinstance(base, str):
+            return "I apologize, but I couldn't generate a valid response at this time. Please try rephrasing your question."
+        
+        # Ensure response is not empty or too short
+        if len(base.strip()) < 10:
+            return "I apologize, but I couldn't generate a meaningful response. Please provide more context or rephrase your question."
+        
+        # Check for response quality indicators
+        if base.strip().lower() in ['error', 'none', 'null', 'undefined']:
+            return "I apologize, but I encountered an error while processing your request. Please try again."
 
         if domain_info.get("has_visa_context"):
             matched = ', '.join(domain_info.get('matched_keywords', []))
