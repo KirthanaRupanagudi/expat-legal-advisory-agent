@@ -21,21 +21,27 @@ class Worker:
         except LangDetectException:
             return 'en'
 
-    def _translate_safe(self, text, target='en'):
+    def _translate_safe(self, text: str, target: str = 'en', source_lang: str = 'auto') -> str:
+        """Safely translate text with fallback to original."""
         try:
             if not text:
                 return None
             translator = GoogleTranslator()
-            return translator.translate(text, target=target)
+            return translator.translate(text, target=target, source=source_lang)
         except Exception as e:
             # Log but don't raise; fallback to original
-            print(f"⚠️ Translation failed: {str(e)}")
-            return None
+            print(f"⚠️  Translation failed: {str(e)}")
+            return text  # Return original text instead of None
 
-    def execute(self, task):
-        a = task.get("action")
-        d = task.get("details", {})
-        if a != "process":
+    def execute(self, task: dict) -> str:
+        """Execute worker task with document processing and translation."""
+        if not isinstance(task, dict):
+            return "Error: Invalid task format"
+        
+        action = task.get("action")
+        details = task.get("details", {})
+        
+        if action != "process":
             return "Unknown action"
 
         user_input_original = d.get("user_input", "")
@@ -51,12 +57,23 @@ class Worker:
         # Translate question to English for internal reasoning
         user_input_en = self._translate_safe(user_input_original, target='en')
 
-        # FIX #1 & #4: Translate document to preferred language (for user communication)
-        # Also use document_language as source hint for better translation
-        document_translated = self._translate_safe(document, target=preferred_language) if document else None
-
-        # Also translate to English for search/reasoning if preferred language is not English
-        document_en = self._translate_safe(document, target='en') if document and preferred_language != 'en' else document_translated
+        # Translate document to preferred language (for user communication)
+        # Use detected document_language as source hint for better translation
+        document_translated = None
+        document_en = None
+        
+        if document:
+            # Only translate if needed
+            if preferred_language != document_language and document_language != 'auto':
+                document_translated = self._translate_safe(document, target=preferred_language, source_lang=document_language)
+            else:
+                document_translated = document
+            
+            # Translate to English for search/reasoning if needed
+            if preferred_language != 'en':
+                document_en = self._translate_safe(document, target='en', source_lang=document_language)
+            else:
+                document_en = document_translated
 
         # Build local search corpus using English content for better search accuracy
         doc_for_search = document_en or document or ""

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 def create_message(sender, receiver, payload):
     return {
@@ -7,5 +7,5 @@ def create_message(sender, receiver, payload):
         'sender': sender,
         'receiver': receiver,
         'payload': payload,
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }

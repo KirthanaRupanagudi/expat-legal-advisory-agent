@@ -1,0 +1,41 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "python-envs.pythonProjects": [],
+    // Testing
+    "python.testing.pytestArgs": [
+        "project/tests"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    // Analysis
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.diagnosticMode": "workspace",
+    // Linting & Formatting
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": true,
+    // Editor
+    "editor.formatOnSave": true,
+    // File exclusions
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        ".pytest_cache": true,
+        ".coverage": true,
+        "htmlcov": true
+    },
+    // Jupyter
+    "jupyter.notebookFileRoot": "${workspaceFolder}",
+    // Language-specific
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+    "[jupyter]": {
+        "files.insertFinalNewline": false
+    }
+}
