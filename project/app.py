@@ -24,7 +24,12 @@ def create_app():
     @limiter.limit('10 per minute')
     def query():
         data = request.json or {}
-        agent_response = run_agent(data.get('input', ''), data.get('document_content'))
+        agent_response = run_agent(
+            user_input=data.get('input', ''),
+            document_content=data.get('document_content'),
+            document_language=data.get('document_language', 'auto'),
+            preferred_language=data.get('preferred_language', 'en')
+        )
         return jsonify({'response': agent_response, 'privacy': PRIVACY_DISCLAIMER})
 
     @app.errorhandler(429)
