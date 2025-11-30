@@ -405,13 +405,11 @@ We welcome contributions! Please follow these steps:
 7. Open a Pull Request
 
 ### Development Guidelines
-
 - Follow PEP 8 style guide
 - Add tests for new features
 - Update documentation
 - Use meaningful commit messages
 - Add type hints where appropriate
-
 ## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
@@ -423,13 +421,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Flask for the REST API framework
 - deep-translator for free translation fallback
 - The open-source community
-
-## 📞 Support
-
-For issues, questions, or suggestions:
-- Open an issue on GitHub
-- Contact: your-email@example.com
-- Documentation: [Project Wiki](https://github.com/yourusername/expat-legal-aid/wiki)
 
 ## 🗺️ Roadmap
 
