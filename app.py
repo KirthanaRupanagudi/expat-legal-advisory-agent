@@ -7,6 +7,8 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional, Tuple, List, Any, Dict
+from datetime import datetime
+import json
 
 # Configure logging
 logging.basicConfig(
@@ -26,6 +28,77 @@ def check_api_key():
     return True
 
 API_KEY_CONFIGURED = check_api_key()
+
+# Usage Monitoring Configuration
+USAGE_LOG_FILE = os.getenv('USAGE_LOG_FILE', 'usage_stats.json')
+DAILY_QUERY_LIMIT = int(os.getenv('DAILY_QUERY_LIMIT', '1000'))  # Configurable limit
+ALERT_THRESHOLD = int(os.getenv('ALERT_THRESHOLD', '800'))  # Alert at 80%
+
+# Usage tracking state
+usage_stats = {
+    'total_queries': 0,
+    'daily_queries': 0,
+    'last_reset': datetime.now().strftime('%Y-%m-%d'),
+    'document_uploads': 0,
+    'language_usage': {},
+    'errors': 0
+}
+
+def log_usage(event_type: str, details: Optional[dict] = None):
+    """Log usage statistics for monitoring."""
+    global usage_stats
+    
+    # Reset daily counter if new day
+    today = datetime.now().strftime('%Y-%m-%d')
+    if usage_stats['last_reset'] != today:
+        logger.info(f"📊 Daily reset - Previous day queries: {usage_stats['daily_queries']}")
+        usage_stats['daily_queries'] = 0
+        usage_stats['last_reset'] = today
+    
+    # Update counters
+    if event_type == 'query':
+        usage_stats['total_queries'] += 1
+        usage_stats['daily_queries'] += 1
+        
+        # Track language usage
+        if details and 'language' in details:
+            lang = details['language']
+            usage_stats['language_usage'][lang] = usage_stats['language_usage'].get(lang, 0) + 1
+        
+        # Alert if approaching limit
+        if usage_stats['daily_queries'] >= ALERT_THRESHOLD:
+            logger.warning(f"⚠️  USAGE ALERT: {usage_stats['daily_queries']}/{DAILY_QUERY_LIMIT} daily queries used")
+        
+        # Log milestone queries
+        if usage_stats['total_queries'] % 100 == 0:
+            logger.info(f"🎯 Milestone: {usage_stats['total_queries']} total queries processed")
+            
+    elif event_type == 'document_upload':
+        usage_stats['document_uploads'] += 1
+        
+    elif event_type == 'error':
+        usage_stats['errors'] += 1
+    
+    # Log current stats
+    logger.info(f"📈 Usage: {usage_stats['daily_queries']}/{DAILY_QUERY_LIMIT} today | {usage_stats['total_queries']} total | {usage_stats['document_uploads']} docs | {usage_stats['errors']} errors")
+    
+    # Optionally save to file for persistence
+    try:
+        with open(USAGE_LOG_FILE, 'w') as f:
+            json.dump({
+                **usage_stats,
+                'timestamp': datetime.now().isoformat(),
+                'details': details
+            }, f, indent=2)
+    except Exception as e:
+        logger.debug(f"Could not write usage log: {e}")
+
+def check_daily_limit() -> Tuple[bool, str]:
+    """Check if daily query limit has been reached."""
+    if usage_stats['daily_queries'] >= DAILY_QUERY_LIMIT:
+        logger.error(f"🚫 DAILY LIMIT REACHED: {usage_stats['daily_queries']}/{DAILY_QUERY_LIMIT}")
+        return False, f"⚠️ **Daily query limit reached ({DAILY_QUERY_LIMIT} queries).** Please try again tomorrow. This limit helps us manage API costs and ensure service availability for everyone."
+    return True, ""
 
 # Constants
 MAX_Q = 15
@@ -135,6 +208,11 @@ def process_input(
     
     current = counter_state or 0
     
+    # Check daily limit first
+    limit_ok, limit_msg = check_daily_limit()
+    if not limit_ok:
+        return (gr.update(value=f"### {t('title', ui_lang)}\n\n{limit_msg}"), current)
+    
     # Immediate validation checks (before progress bar)
     if not consent_given:
         logger.warning("Consent not given")
@@ -143,11 +221,16 @@ def process_input(
     # Check for empty input immediately
     if not user_input or len(user_input.strip()) == 0:
         logger.warning("Empty question submitted")
+        log_usage('error', {'type': 'empty_input', 'ui_lang': ui_lang})
         return (gr.update(value=f"### {t('title', ui_lang)}\n\n❌ **Error: Question cannot be empty.**\n\nPlease enter your legal question and try again."), current)
     
     if current >= MAX_Q:
         logger.warning(f"Question limit reached: {current}/{MAX_Q}")
+        log_usage('error', {'type': 'session_limit', 'ui_lang': ui_lang})
         return (gr.update(value=f"### {t('title', ui_lang)}\n\n⚠️ **Limit reached:** You can ask a maximum of {MAX_Q} questions per session."), current)
+    
+    # Log successful query
+    log_usage('query', {'language': pref_lang, 'has_document': bool(legal_document), 'ui_lang': ui_lang})
     
     # Now start processing with visual feedback
     progress(0, desc="🔄 Starting...")
@@ -165,6 +248,7 @@ def process_input(
         if legal_document is not None:
             name = legal_document.name.lower()
             logger.info(f"Processing document: {name}")
+            log_usage('document_upload', {'file_type': name.split('.')[-1], 'ui_lang': ui_lang})
             progress(0.2, desc="📄 Reading document...")
             
             if name.endswith('.pdf'):
@@ -184,15 +268,19 @@ def process_input(
             progress(0.3, desc="💬 Processing question...")
     except FileNotFoundError as e:
         logger.error(f"File not found: {legal_document.name}")
+        log_usage('error', {'type': 'file_not_found', 'ui_lang': ui_lang})
         return (gr.update(value=f"### {t('title', ui_lang)}\n\n**Error reading document:**\n\n**Error Type:** File not found\n**Message:** {str(e)}\n\nPlease check the file and try again."), current)
     except UnicodeDecodeError as e:
         logger.error(f"Encoding error in document: {legal_document.name}")
+        log_usage('error', {'type': 'encoding_error', 'ui_lang': ui_lang})
         return (gr.update(value=f"### {t('title', ui_lang)}\n\n**Error reading document:**\n\n**Error Type:** Encoding error\n**Message:** The file encoding is not supported. Please ensure the file is in UTF-8 format.\n\nPlease try another file."), current)
     except subprocess.TimeoutExpired:
         logger.error("Document conversion timed out")
+        log_usage('error', {'type': 'conversion_timeout', 'ui_lang': ui_lang})
         return (gr.update(value=f"### {t('title', ui_lang)}\n\n**Error reading document:**\n\n**Error Type:** Timeout\n**Message:** Document conversion took too long. The file may be too large.\n\nPlease try a smaller file."), current)
     except Exception as e:
         logger.error(f"Error reading document: {type(e).__name__} - {str(e)}", exc_info=True)
+        log_usage('error', {'type': 'document_processing', 'error': type(e).__name__, 'ui_lang': ui_lang})
         return (gr.update(value=f"### {t('title', ui_lang)}\n\n**Error reading document:**\n\n**Error Type:** {type(e).__name__}\n**Message:** {str(e)}\n\nPlease try another file."), current)
 
     # Validate all inputs
@@ -201,6 +289,7 @@ def process_input(
     if validation_errors:
         error_msg = "\n".join(validation_errors)
         logger.warning(f"Input validation error: {error_msg}")
+        log_usage('error', {'type': 'validation', 'ui_lang': ui_lang})
         return (gr.update(value=f"### {t('title', ui_lang)}\n\n**Input Error:**\n\n{error_msg}"), current)
 
     # Run agent analysis
@@ -212,9 +301,11 @@ def process_input(
         progress(0.9, desc="✨ Finalizing response...")
     except TimeoutError as e:
         logger.error(f"Agent processing timeout: {str(e)}")
+        log_usage('error', {'type': 'agent_timeout', 'ui_lang': ui_lang})
         return (gr.update(value=f"### {t('title', ui_lang)}\n\n**Processing Timeout:**\n\nThe request took too long to process. Please try with a shorter document or simpler question."), current)
     except Exception as e:
         logger.error(f"Processing error from main agent: {str(e)}", exc_info=True)
+        log_usage('error', {'type': 'agent_error', 'error': type(e).__name__, 'ui_lang': ui_lang})
         # Don't expose raw exception details to users for security
         return (gr.update(value=f"### {t('title', ui_lang)}\n\n**Processing Error:**\n\nAn unexpected error occurred while processing your request. Please try again or contact support if the issue persists."), current)
 
@@ -241,6 +332,12 @@ with gr.Blocks(title="Expat Legal Aid Advisor - Multi-Agent AI") as demo:
     gr.Markdown('# 🤖 Expat Legal Aid Advisor')
     gr.Markdown('**Multi-Agent AI System** for legal advisory assistance. Upload documents and ask questions in multiple languages.')
     gr.Markdown('⚖️ *Note: This is an AI assistant, NOT a replacement for professional legal advice.*')
+    
+    # Usage status banner
+    usage_banner = gr.Markdown(
+        f"📊 **Service Status:** Available | Daily queries: {usage_stats['daily_queries']}/{DAILY_QUERY_LIMIT}",
+        visible=True
+    )
     
     consent_group = gr.Group(visible=True)
     with consent_group:
@@ -316,6 +413,14 @@ with gr.Blocks(title="Expat Legal Aid Advisor - Multi-Agent AI") as demo:
         """Clear the status message after processing."""
         return gr.update(value="", visible=False)
     
+    def update_usage_banner():
+        """Update the usage statistics banner."""
+        percentage = (usage_stats['daily_queries'] / DAILY_QUERY_LIMIT) * 100
+        status_emoji = "✅" if percentage < 80 else "⚠️" if percentage < 100 else "🔴"
+        return gr.update(
+            value=f"{status_emoji} **Service Status:** Available | Daily queries: {usage_stats['daily_queries']}/{DAILY_QUERY_LIMIT} ({percentage:.0f}%)"
+        )
+    
     consent.change(toggle, inputs=[consent], outputs=[consent_group, main_group])
     
     # Show processing message immediately on click, then process
@@ -332,6 +437,11 @@ with gr.Blocks(title="Expat Legal Aid Advisor - Multi-Agent AI") as demo:
         fn=clear_status,
         inputs=None,
         outputs=[status],
+        queue=False
+    ).then(
+        fn=update_usage_banner,
+        inputs=None,
+        outputs=[usage_banner],
         queue=False
     )
 
