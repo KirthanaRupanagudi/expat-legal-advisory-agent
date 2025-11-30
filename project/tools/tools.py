@@ -221,7 +221,22 @@ class GeminiLLM:
 
             # Summarize the final response to ensure it's within limits
             return summarizer(response.text, self.MAX_RESPONSE_LENGTH)
+        
         try:
             return retry_generic(_call)
-        except Exception:
-            return "Unable to generate response at this time."
+        except Exception as e:
+            # Log the actual error for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"LLM generation failed: {type(e).__name__}: {str(e)}", exc_info=True)
+            
+            # Return user-friendly error message
+            error_msg = str(e).lower()
+            if 'api key' in error_msg or 'authentication' in error_msg or 'invalid' in error_msg:
+                return "Unable to generate response: Invalid API key. Please check your GOOGLE_API_KEY environment variable."
+            elif 'quota' in error_msg or 'limit' in error_msg:
+                return "Unable to generate response: API quota exceeded. Please try again later."
+            elif 'timeout' in error_msg:
+                return "Unable to generate response: Request timed out. Please try again."
+            else:
+                return f"Unable to generate response at this time. Error: {type(e).__name__}"
