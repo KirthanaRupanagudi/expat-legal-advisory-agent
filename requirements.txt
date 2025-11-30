@@ -1,0 +1,15 @@
+gradio
+flask
+pytest
+coverage
+cryptography
+requests
+google-generativeai
+Flask-HTTPAuth
+Flask-Limiter
+gunicorn
+PyPDF2
+reportlab
+python-docx
+langdetect
+jedi
